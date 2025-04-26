@@ -53,7 +53,7 @@ void* arena_malloc(size_t size)
     while(1)
     {
         uintptr_t addr_value = *((uintptr_t*)current_block_start);
-        byte_t in_use = *((byte_t*)(current_block_start + sizeof(uintptr_t)));
+        byte_t in_use = *((byte_t*)current_block_start + sizeof(uintptr_t));
 
         if (addr_value == 0)
             break;
@@ -70,7 +70,7 @@ void* arena_malloc(size_t size)
 
             // Check for following blocks that are freed
             void* next_block = (void*)addr_value;
-            byte_t next_in_use = *((byte_t*)(next_block + sizeof(uintptr_t)));
+            byte_t next_in_use = *((byte_t*)next_block + sizeof(uintptr_t));
             
             while (!next_in_use)
             {
@@ -79,7 +79,7 @@ void* arena_malloc(size_t size)
                 if (next_block == NULL)
                     break;
 
-                next_in_use = *((byte_t*)(next_block + sizeof(uintptr_t)));
+                next_in_use = *((byte_t*)next_block + sizeof(uintptr_t));
             }
 
             if (next_block == NULL)
@@ -100,7 +100,7 @@ void* arena_malloc(size_t size)
         return NULL;
 
     // writing in the starting address of the next block
-    void* block_end = (current_block_start + sizeof(uintptr_t) + sizeof(byte_t) + size);
+    void* block_end = (void*)((uintptr_t)current_block_start + sizeof(uintptr_t) + sizeof(byte_t) + size);
     
     if (known_next_block_start == NULL)
     {
@@ -115,7 +115,7 @@ void* arena_malloc(size_t size)
             // write into after the current block to keep the blocks correct
             *(uintptr_t*)block_end = (uintptr_t)known_next_block_start;
             // and mark as not in use
-            *(byte_t*)(block_end + sizeof(uintptr_t)) = (byte_t)0;
+            *((byte_t*)block_end + sizeof(uintptr_t)) = (byte_t)0;
             // write this block-end into the first 4 bytes of the current block
             *(uintptr_t*)(current_block_start) = (uintptr_t)block_end;
         }
@@ -127,10 +127,10 @@ void* arena_malloc(size_t size)
     }
 
     // marking this block as in-use
-    *(byte_t*)(current_block_start + sizeof(uintptr_t)) = 1;
+    *((byte_t*)current_block_start + sizeof(uintptr_t)) = 1;
     
     // and return the address after all the written info
-    return (current_block_start + sizeof(uintptr_t) + sizeof(byte_t));
+    return (void*)((uintptr_t)current_block_start + sizeof(uintptr_t) + sizeof(byte_t));
 }
 
 void arena_free(void* addr)
@@ -139,7 +139,7 @@ void arena_free(void* addr)
     if (!block_in_use(mem_start))
         return;
 
-    *(byte_t*)(mem_start - sizeof(byte_t)) = 0;
+    *(byte_t*)((uintptr_t)mem_start - sizeof(byte_t)) = 0;
 }
 
 bool block_in_use(void* addr)
@@ -165,17 +165,17 @@ void* find_mem_start(void* addr)
         next = (void*)*(uintptr_t*)start;
     }
 
-    return start + sizeof(uintptr_t) + sizeof(byte_t);
+    return (void*)((uintptr_t)start + sizeof(uintptr_t) + sizeof(byte_t));
 }
 
 void* get_block_start(void* addr)
 {
-    return (addr - sizeof(byte_t) - sizeof(uintptr_t));
+    return (void*) ((uintptr_t)addr - sizeof(byte_t) - sizeof(uintptr_t));
 }
 
 void* next_block_start(void* addr)
 {
-    return (void*) *(uintptr_t*)(addr - sizeof(byte_t) - sizeof(uintptr_t));
+    return (void*) *(uintptr_t*)((uintptr_t)addr - sizeof(byte_t) - sizeof(uintptr_t));
 }
 
 ptrdiff_t get_block_size(void* addr)
