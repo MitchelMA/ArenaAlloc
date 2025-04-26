@@ -94,6 +94,11 @@ void* arena_malloc(size_t size)
         current_block_start = (void*)addr_value;
     }
 
+    // Checking if the allocation would be within the bounds of the allocated space of the arena 
+    ptrdiff_t relative_offset = ((uintptr_t)current_block_start + sizeof(uintptr_t) + sizeof(byte_t)) - (uintptr_t)arena_start_addr;
+    if (relative_offset + size > arena_size)
+        return NULL;
+
     // writing in the starting address of the next block
     void* block_end = (current_block_start + sizeof(uintptr_t) + sizeof(byte_t) + size);
     
@@ -111,7 +116,6 @@ void* arena_malloc(size_t size)
             *(uintptr_t*)block_end = (uintptr_t)known_next_block_start;
             // and mark as not in use
             *(byte_t*)(block_end + sizeof(uintptr_t)) = (byte_t)0;
-
             // write this block-end into the first 4 bytes of the current block
             *(uintptr_t*)(current_block_start) = (uintptr_t)block_end;
         }
@@ -123,7 +127,7 @@ void* arena_malloc(size_t size)
     }
 
     // marking this block as in-use
-    *(byte_t*)(current_block_start + sizeof(uintptr_t)) = (byte_t)1;
+    *(byte_t*)(current_block_start + sizeof(uintptr_t)) = 1;
     
     // and return the address after all the written info
     return (current_block_start + sizeof(uintptr_t) + sizeof(byte_t));
@@ -179,8 +183,45 @@ ptrdiff_t get_block_size(void* addr)
     return (uintptr_t)next_block_start(addr) - (uintptr_t)addr;
 }
 
-
 int main(void)
+{
+    int pages = arena_prepare(200000);
+
+    printf("Mapped %d pages\n", pages);
+
+    char* mem = (char*)arena_malloc(arena_size - (9 + 11));
+    char* mem2 = (char*)arena_malloc(2);
+    arena_free(mem);
+    mem = arena_malloc(arena_size - (9 + 11));
+
+    printf("Mem-start:   %p\n", mem);
+    if (mem != NULL)
+    {
+        printf("Block-start: %p\n", get_block_start(mem));
+        printf("Next-block:  %p\n", next_block_start(mem));
+        printf("Block-size:  %ld\n", get_block_size(mem));
+    }
+
+    printf("\n");
+
+    printf("Mem-start:   %p\n", mem2);
+    if (mem2 != NULL)
+    {
+        printf("Block-start: %p\n", get_block_start(mem2));
+        printf("Next-block:  %p\n", next_block_start(mem2));
+        printf("Block-size:  %ld\n", get_block_size(mem2));
+    }
+
+
+    fgetc(stdin);
+
+    
+    arena_clear();
+
+    return EXIT_SUCCESS;
+}
+
+int main2(void)
 {
     int pages = arena_prepare(2);
 
