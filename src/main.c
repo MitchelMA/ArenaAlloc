@@ -13,6 +13,7 @@ static size_t arena_size = 0;
 
 int arena_prepare(int page_count);
 int arena_clear();
+bool arena_find_block(const void* start_address, const void* end_address, size_t min_size_request, uintptr_t* found_start, uintptr_t* found_end);
 void* arena_malloc(size_t size);
 void arena_free(void* addr);
 bool block_in_use(void* addr);
@@ -45,92 +46,128 @@ int arena_clear()
     return munmap((void*)arena_start_addr, arena_size);
 }
 
-void* arena_malloc(size_t size)
+bool
+arena_find_block(
+    const void* start_address, const void* end_address,
+    size_t min_size_request,
+    uintptr_t* found_start, uintptr_t* found_end
+)
 {
-    // Finding the first empty block
-    void* current_block_start = arena_start_addr;
-    void* known_next_block_start = NULL;
-    while(1)
-    {
-        uintptr_t addr_value = *((uintptr_t*)current_block_start);
-        byte_t in_use = *((byte_t*)current_block_start + sizeof(uintptr_t));
+    const void* current_block_start = start_address;
 
-        if (addr_value == 0)
+    while (1)
+    {
+        if (current_block_start == NULL || 
+            current_block_start >= end_address)
             break;
 
-        // check available size
-        if (!in_use)
+        uintptr_t next_block_addr = *(uintptr_t*)current_block_start;
+    
+        byte_t in_use = *(byte_t*)((uintptr_t)current_block_start + sizeof(uintptr_t));
+        
+        // if this block is currently is use, continue to the next one
+        if (in_use)
         {
-            ptrdiff_t available_size = (addr_value - (uintptr_t)current_block_start) - sizeof(uintptr_t) - sizeof(byte_t);
-            if (available_size >= size)
-            {
-                known_next_block_start = (void*)addr_value;
-                break;
-            } 
-
-            // Check for following blocks that are freed
-            void* next_block = (void*)addr_value;
-            byte_t next_in_use = *((byte_t*)next_block + sizeof(uintptr_t));
-            
-            while (!next_in_use)
-            {
-                next_block = (void*)*((uintptr_t*)next_block);
-
-                if (next_block == NULL)
-                    break;
-
-                next_in_use = *((byte_t*)next_block + sizeof(uintptr_t));
-            }
-
-            if (next_block == NULL)
-                break;
-
-            known_next_block_start = next_block;
-            available_size = ((uintptr_t)next_block - (uintptr_t)current_block_start) - sizeof(uintptr_t) - sizeof(byte_t);
-            if (available_size >= size)
-                break;
+            current_block_start = (const void*)next_block_addr;
+            continue;
         }
 
-        current_block_start = (void*)addr_value;
+        if (next_block_addr == (uintptr_t)NULL)
+        {
+            if ((uintptr_t)current_block_start + min_size_request > (uintptr_t)end_address)
+                return false;
+
+            *found_start = (uintptr_t)current_block_start;
+            *found_end   = (uintptr_t)end_address;
+            return true;
+        }
+
+        ptrdiff_t block_size = next_block_addr - (uintptr_t)current_block_start;
+        if (block_size >= min_size_request)
+        {
+            *found_start = (uintptr_t)current_block_start;
+            *found_end   = next_block_addr;
+            return true;
+        }
+
+        in_use = *(byte_t*)(next_block_addr + sizeof(uintptr_t));
+        // search for consecutive cleared blocks
+        while (!in_use)
+        {
+            if (next_block_addr > (uintptr_t)end_address)
+                break;
+
+            next_block_addr = *(uintptr_t*)next_block_addr;
+            
+            if (next_block_addr == (uintptr_t)NULL ||
+                next_block_addr >= (uintptr_t)end_address)
+                break;
+
+            in_use = *(byte_t*)(next_block_addr + sizeof(uintptr_t));
+        }
+
+        // Situation where we got to the end of the mapped memory
+        if (next_block_addr == (uintptr_t)NULL ||
+            next_block_addr == (uintptr_t)end_address)
+        {
+            ptrdiff_t total_mem = (uintptr_t)end_address - (uintptr_t)current_block_start;
+            if (total_mem < min_size_request)
+                return false;
+
+            *found_start = (uintptr_t)current_block_start;
+            *found_end   = (uintptr_t)end_address;
+            return true;
+        }
+
+        // Situation where the total size of consecutive blocks is enough
+        block_size = next_block_addr - (uintptr_t)current_block_start;
+        if (block_size >= min_size_request)
+        {
+            *found_start = (uintptr_t)current_block_start;
+            *found_end   = next_block_addr;
+            return true;
+        }
+        
+        
+        current_block_start = (const void*)next_block_addr;
     }
 
-    // Checking if the allocation would be within the bounds of the allocated space of the arena 
-    ptrdiff_t relative_offset = ((uintptr_t)current_block_start + sizeof(uintptr_t) + sizeof(byte_t)) - (uintptr_t)arena_start_addr;
-    if (relative_offset + size > arena_size)
+    return false;
+}
+
+void* arena_malloc(size_t size)
+{
+    uintptr_t start = 0;
+    uintptr_t end   = 0;
+    size_t real_size = size + sizeof(uintptr_t) + sizeof(byte_t);
+    
+    bool found = arena_find_block(
+        arena_start_addr,
+        (void*)((uintptr_t)arena_start_addr + arena_size),
+        real_size,
+        &start, &end);
+
+    if (!found)
         return NULL;
 
-    // writing in the starting address of the next block
-    void* block_end = (void*)((uintptr_t)current_block_start + sizeof(uintptr_t) + sizeof(byte_t) + size);
     
-    if (known_next_block_start == NULL)
+    void* calculated_block_end = (void*)(start + real_size);
+    ptrdiff_t available = end - (uintptr_t)calculated_block_end;
+
+    if (available >= (sizeof(uintptr_t) + sizeof(byte_t) +  sizeof(byte_t)))
     {
-        *(uintptr_t*)(current_block_start) = (uintptr_t)block_end;
+        *(uintptr_t*)calculated_block_end = end;
+        *(byte_t*)((uintptr_t)calculated_block_end + sizeof(uintptr_t)) = (byte_t)0;
+        *(uintptr_t*)(start) = (uintptr_t)calculated_block_end;
     }
     else
     {
-        // check first if we can split the block
-        ptrdiff_t available = (uintptr_t)known_next_block_start - (uintptr_t)block_end;
-        if (available >= (sizeof(uintptr_t) + sizeof(byte_t) +  sizeof(byte_t)))
-        {
-            // write into after the current block to keep the blocks correct
-            *(uintptr_t*)block_end = (uintptr_t)known_next_block_start;
-            // and mark as not in use
-            *((byte_t*)block_end + sizeof(uintptr_t)) = (byte_t)0;
-            // write this block-end into the first 4 bytes of the current block
-            *(uintptr_t*)(current_block_start) = (uintptr_t)block_end;
-        }
-        else
-        {
-            // when not enough is available, just give the full block
-            *(uintptr_t*)(current_block_start) = (uintptr_t)known_next_block_start;
-        }
+        *(uintptr_t*)(start) = end;
     }
 
-    // marking this block as in-use
-    *((byte_t*)current_block_start + sizeof(uintptr_t)) = 1;
-    
-    // and return the address after all the written info
-    return (void*)((uintptr_t)current_block_start + sizeof(uintptr_t) + sizeof(byte_t));
+    *(byte_t*)((uintptr_t)start + sizeof(uintptr_t)) = (byte_t)1;
+
+    return (void*)((uintptr_t)start + sizeof(uintptr_t) + sizeof(byte_t));
 }
 
 void arena_free(void* addr)
@@ -185,13 +222,177 @@ ptrdiff_t get_block_size(void* addr)
 
 int main(void)
 {
-    int pages = arena_prepare(200000);
+    byte_t* mem = NULL;
+      
+    int pages = arena_prepare(500000);
 
     printf("Mapped %d pages\n", pages);
+    printf("Start address: %p\n\n", arena_start_addr);
+
+    if (pages == 0)
+        return EXIT_FAILURE;
+
+    fgetc(stdin);
+
+    size_t allocated = arena_size - 9;
+    mem = arena_malloc(allocated);
+
+    if (mem == NULL)
+    {
+        arena_clear();
+        return EXIT_FAILURE;
+    }
+
+    for (size_t i = 0; i < allocated; ++i)
+        mem[i] = 1;
+    
+    fgetc(stdin);
+
+    arena_clear();
+
+    fgetc(stdin);
+    return EXIT_SUCCESS;
+}
+
+int main5(void)
+{
+    char* mem = NULL;
+    char* mem2 = NULL;
+    char* mem3 = NULL;
+
+    int pages = arena_prepare(299999);
+
+    printf("Mapped %d pages\n", pages);
+    printf("Start address: %p\n\n", arena_start_addr);
+
+    if (pages == 0)
+        return EXIT_FAILURE;
+
+    mem = arena_malloc(10);
+    mem2 = arena_malloc(90);
+    arena_free(mem);
+    mem3 = arena_malloc(60);
+
+    uintptr_t start = 0;
+    uintptr_t end = 0;
+    if (arena_find_block(arena_start_addr, (void*)((uintptr_t)arena_start_addr + arena_size), 10, &start, &end))
+    {
+        printf("arena_find_block():\n");
+        printf("Start: %p\n", (void*)start);
+        if (end != (uintptr_t)NULL)
+        {
+            printf("End:   %p\n", (void*)end);
+            printf("gotten-size: %ld\n", (ptrdiff_t)(end - start));
+        }
+
+        printf("\n");
+    }
+    else
+    {
+        printf("Failed to find block!\n");
+    }
+    
+    mem = arena_malloc(10);
+    arena_free(mem2);
+    mem2 = arena_malloc(90);
+
+    printf("Mem-start 1: %p\n", mem);
+    if (mem != NULL)
+    {
+        printf("Block-start: %p\n", get_block_start(mem));
+        printf("Next-block:  %p\n", next_block_start(mem));
+        printf("Block-size:  %ld\n", get_block_size(mem));
+    }
+
+    printf("\n");
+
+    printf("Mem-start 2: %p\n", mem2);
+    if (mem2 != NULL)
+    {
+        printf("Block-start: %p\n", get_block_start(mem2));
+        printf("In-use:      %d\n", *(byte_t*)((uintptr_t)mem2 - sizeof(byte_t)));
+        printf("Next-block:  %p\n", next_block_start(mem2));
+        printf("Block-size:  %ld\n", get_block_size(mem2));
+    }
+
+    printf("\n");
+
+    printf("Mem-start 3: %p\n", mem3);
+    if (mem3 != NULL)
+    {
+        printf("Block-start: %p\n", get_block_start(mem3));
+        printf("In-use:      %d\n", *(byte_t*)((uintptr_t)mem3 - sizeof(byte_t)));
+        printf("Next-block:  %p\n", next_block_start(mem3));
+        printf("Block-size:  %ld\n", get_block_size(mem3));
+    }
+
+    fgetc(stdin);
+
+    arena_clear();
+
+    return EXIT_SUCCESS;
+}
+
+int main4(void)
+{
+    int pages = arena_prepare(1);
+    printf("Mapped %d pages\n", pages);   
 
     char* mem = (char*)arena_malloc(arena_size - (9 + 11));
     char* mem2 = (char*)arena_malloc(2);
+    // char* mem2 = NULL;
+
+
+    printf("Mem-start:   %p\n", mem);
+    if (mem != NULL)
+    {
+        printf("Block-start: %p\n", get_block_start(mem));
+        printf("Next-block:  %p\n", next_block_start(mem));
+        printf("Block-size:  %ld\n", get_block_size(mem));
+    }
+
+    printf("\n");
+
+    printf("Mem-start:   %p\n", mem2);
+    if (mem2 != NULL)
+    {
+        printf("Block-start: %p\n", get_block_start(mem2));
+        printf("In-use:      %d\n", *(byte_t*)((uintptr_t)mem2 - sizeof(byte_t)));
+        printf("Next-block:  %p\n", next_block_start(mem2));
+        printf("Block-size:  %ld\n", get_block_size(mem2));
+    }
+
+    return EXIT_SUCCESS;
+}
+
+int main3(void)
+{
+    int pages = arena_prepare(1);
+
+    printf("Mapped %d pages\n", pages);
+
+
+
+    char* mem = (char*)arena_malloc(arena_size - (9 + 11));
     arena_free(mem);
+    uintptr_t start, end;
+    if (arena_find_block(arena_start_addr, (void*)((uintptr_t)arena_start_addr + arena_size), arena_size*2, &start, &end))
+    {
+        printf("arena_find_block():\n");
+        printf("Start: %p\n", (void*)start);
+        if (end != (uintptr_t)NULL)
+        {
+            printf("End:   %p\n", (void*)end);
+            printf("gotten-size: %ld\n", (ptrdiff_t)(end - start));
+        }
+
+        printf("\n");
+    }
+    char* mem2 = (char*)arena_malloc(2);
+    arena_free(mem);
+
+
+
     mem = arena_malloc(arena_size - (9 + 11));
 
     printf("Mem-start:   %p\n", mem);
@@ -208,6 +409,7 @@ int main(void)
     if (mem2 != NULL)
     {
         printf("Block-start: %p\n", get_block_start(mem2));
+        printf("In-use:      %d\n", *(byte_t*)((uintptr_t)mem2 - sizeof(byte_t)));
         printf("Next-block:  %p\n", next_block_start(mem2));
         printf("Block-size:  %ld\n", get_block_size(mem2));
     }
