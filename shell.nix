@@ -6,6 +6,7 @@ pkgs.mkShell {
     clang
     cmake
     tmux
+    gdb
   ];
 
   shellHook = ''

@@ -127,20 +127,10 @@ arena_find_block(
             return true;
         }
 
-        in_use = *(byte_t*)(next_block_addr + sizeof(uintptr_t));
-        // search for consecutive cleared blocks
-        while (!in_use)
+        if (!arena_find_consecutive(current_block_start, end_address, &next_block_addr))
         {
-            if (next_block_addr > (uintptr_t)end_address)
-                break;
-
-            next_block_addr = *(uintptr_t*)next_block_addr;
-            
-            if (next_block_addr == (uintptr_t)NULL ||
-                next_block_addr >= (uintptr_t)end_address)
-                break;
-
-            in_use = *(byte_t*)(next_block_addr + sizeof(uintptr_t));
+            current_block_start = (const void*)next_block_addr;
+            continue;
         }
 
         // Situation where we got to the end of the mapped memory
@@ -257,7 +247,7 @@ ptrdiff_t get_block_size(void* addr)
     return (uintptr_t)next_block_start(addr) - (uintptr_t)addr;
 }
 
-int main(void)
+int main6(void)
 {
     byte_t* mem = NULL;
       
@@ -291,7 +281,7 @@ int main(void)
     return EXIT_SUCCESS;
 }
 
-int main5(void)
+int main(void)
 {
     char* mem = NULL;
     char* mem2 = NULL;
