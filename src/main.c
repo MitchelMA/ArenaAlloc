@@ -134,8 +134,7 @@ arena_find_block(
         }
 
         // Situation where we got to the end of the mapped memory
-        if (next_block_addr == (uintptr_t)NULL ||
-            next_block_addr == (uintptr_t)end_address)
+        if (next_block_addr == (uintptr_t)end_address)
         {
             ptrdiff_t total_mem = (uintptr_t)end_address - (uintptr_t)current_block_start;
             if ((size_t)total_mem < min_size_request)
