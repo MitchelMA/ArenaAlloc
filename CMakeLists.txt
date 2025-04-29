@@ -4,7 +4,7 @@ project(ArenaAllocator
     LANGUAGES C)
 
 set(CMAKE_C_STANDARD 23)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -pedantic")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wpedantic -pedantic")
 set(CMAKE_C_FLAGS_DEBUG "-g -ggdb")
 set(CMAKE_C_FLAGS_RELEASE "-Werror -Ofast")
 

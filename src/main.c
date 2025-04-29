@@ -13,6 +13,7 @@ static size_t arena_size = 0;
 
 int arena_prepare(int page_count);
 int arena_clear();
+bool arena_find_consecutive(const void* start_address, const void* end_address, uintptr_t* border);
 bool arena_find_block(const void* start_address, const void* end_address, size_t min_size_request, uintptr_t* found_start, uintptr_t* found_end);
 void* arena_malloc(size_t size);
 void arena_free(void* addr);
@@ -44,6 +45,42 @@ int arena_clear()
         return -1;
 
     return munmap((void*)arena_start_addr, arena_size);
+}
+
+bool
+arena_find_consecutive(
+    const void* start_address,
+    const void* end_address,
+    uintptr_t* border
+)
+{
+    if (start_address >= end_address)
+        return false;
+
+    uintptr_t next_block_start = *(uintptr_t*)start_address;
+    byte_t in_use = *(byte_t*)((uintptr_t)start_address + sizeof(uintptr_t));
+
+    if (in_use)
+      return false;
+
+    in_use = *(byte_t*)(next_block_start + sizeof(uintptr_t));
+    while (!in_use)
+    {
+        next_block_start = *(uintptr_t*)next_block_start;
+
+        if (next_block_start == (uintptr_t)NULL ||
+            next_block_start >= (uintptr_t)end_address)
+            break;
+
+        in_use = *(byte_t*)(next_block_start + sizeof(uintptr_t));
+    }
+
+    if (next_block_start == (uintptr_t)NULL ||
+        next_block_start >= (uintptr_t)end_address)
+        next_block_start = (uintptr_t)end_address;
+
+    *border = next_block_start;
+    return true;
 }
 
 bool
@@ -83,7 +120,7 @@ arena_find_block(
         }
 
         ptrdiff_t block_size = next_block_addr - (uintptr_t)current_block_start;
-        if (block_size >= min_size_request)
+        if ((size_t)block_size >= min_size_request)
         {
             *found_start = (uintptr_t)current_block_start;
             *found_end   = next_block_addr;
@@ -111,7 +148,7 @@ arena_find_block(
             next_block_addr == (uintptr_t)end_address)
         {
             ptrdiff_t total_mem = (uintptr_t)end_address - (uintptr_t)current_block_start;
-            if (total_mem < min_size_request)
+            if ((size_t)total_mem < min_size_request)
                 return false;
 
             *found_start = (uintptr_t)current_block_start;
@@ -121,7 +158,7 @@ arena_find_block(
 
         // Situation where the total size of consecutive blocks is enough
         block_size = next_block_addr - (uintptr_t)current_block_start;
-        if (block_size >= min_size_request)
+        if ((uintptr_t)block_size >= min_size_request)
         {
             *found_start = (uintptr_t)current_block_start;
             *found_end   = next_block_addr;
@@ -154,7 +191,7 @@ void* arena_malloc(size_t size)
     void* calculated_block_end = (void*)(start + real_size);
     ptrdiff_t available = end - (uintptr_t)calculated_block_end;
 
-    if (available >= (sizeof(uintptr_t) + sizeof(byte_t) +  sizeof(byte_t)))
+    if (available >= (int)(sizeof(uintptr_t) + sizeof(byte_t) +  sizeof(byte_t)))
     {
         *(uintptr_t*)calculated_block_end = end;
         *(byte_t*)((uintptr_t)calculated_block_end + sizeof(uintptr_t)) = (byte_t)0;
