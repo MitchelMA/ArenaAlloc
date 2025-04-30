@@ -1,22 +1,22 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdint.h>
-#include <stddef.h>
-#include <unistd.h>
-#include <sys/mman.h>
-#include <stdbool.h>
-
 #include <arena.h>
 
-static bool arena_find_consecutive(const void* start_address, const void* end_address, uintptr_t* border);
-static bool arena_find_block(const void* start_address, const void* end_address, size_t min_size_request, uintptr_t* found_start, uintptr_t* found_end);
+#include <unistd.h>
+#include <sys/mman.h>
 
-static bool block_in_use(void* addr);
-static void* find_mem_start(void* addr);
-static void* get_block_start(void* addr);
-static void* next_block_start(void* addr);
-static ptrdiff_t get_block_size(void* addr);
+typedef char byte_t;
 
+static void* arena_start_addr = NULL;
+static size_t arena_size = 0;
+
+// Local declerations
+
+static bool find_consecutive_(const void* start_address, const void* end_address, uintptr_t* border);
+static bool find_block_(const void* start_address, const void* end_address, size_t min_size_request, uintptr_t* found_start, uintptr_t* found_end);
+
+static void* find_mem_start_(void* addr);
+static void* next_block_start_(void* addr);
+
+// End local declerations
 
 int arena_prepare(int page_count)
 {
@@ -41,8 +41,69 @@ int arena_clean()
     return munmap((void*)arena_start_addr, arena_size);
 }
 
+void* arena_malloc(size_t size)
+{
+    uintptr_t start = 0;
+    uintptr_t end   = 0;
+    size_t real_size = size + sizeof(uintptr_t) + sizeof(byte_t);
+    
+    bool found = find_block_(
+        arena_start_addr,
+        (void*)((uintptr_t)arena_start_addr + arena_size),
+        real_size,
+        &start, &end);
+
+    if (!found)
+        return NULL;
+
+    
+    void* calculated_block_end = (void*)(start + real_size);
+    ptrdiff_t available = end - (uintptr_t)calculated_block_end;
+
+    if (available >= (int)(sizeof(uintptr_t) + sizeof(byte_t) +  sizeof(byte_t)))
+    {
+        *(uintptr_t*)calculated_block_end = end;
+        *(byte_t*)((uintptr_t)calculated_block_end + sizeof(uintptr_t)) = (byte_t)0;
+        *(uintptr_t*)(start) = (uintptr_t)calculated_block_end;
+    }
+    else
+    {
+        *(uintptr_t*)(start) = end;
+    }
+
+    *(byte_t*)((uintptr_t)start + sizeof(uintptr_t)) = (byte_t)1;
+
+    return (void*)((uintptr_t)start + sizeof(uintptr_t) + sizeof(byte_t));
+}
+
+void arena_free(void* addr)
+{
+    void* mem_start = find_mem_start_(addr);
+    if (!arena_block_in_use(mem_start))
+        return;
+
+    *(byte_t*)((uintptr_t)mem_start - sizeof(byte_t)) = 0;
+}
+
+bool arena_block_in_use(void* addr)
+{
+    return *(((byte_t*)addr) - 1) == 1;
+}
+
+ptrdiff_t arena_get_block_size(void* addr)
+{
+    return (uintptr_t)next_block_start_(addr) - (uintptr_t)addr;
+}
+
+void* next_block_start_(void* addr)
+{
+    return (void*) *(uintptr_t*)((uintptr_t)addr - sizeof(byte_t) - sizeof(uintptr_t));
+}
+
+// local definitions
+
 bool
-arena_find_consecutive(
+find_consecutive_(
     const void* start_address,
     const void* end_address,
     uintptr_t* border
@@ -78,7 +139,7 @@ arena_find_consecutive(
 }
 
 bool
-arena_find_block(
+find_block_(
     const void* start_address, const void* end_address,
     size_t min_size_request,
     uintptr_t* found_start, uintptr_t* found_end
@@ -121,7 +182,7 @@ arena_find_block(
             return true;
         }
 
-        if (!arena_find_consecutive(current_block_start, end_address, &next_block_addr))
+        if (!find_consecutive_(current_block_start, end_address, &next_block_addr))
         {
             current_block_start = (const void*)next_block_addr;
             continue;
@@ -155,56 +216,7 @@ arena_find_block(
     return false;
 }
 
-void* arena_malloc(size_t size)
-{
-    uintptr_t start = 0;
-    uintptr_t end   = 0;
-    size_t real_size = size + sizeof(uintptr_t) + sizeof(byte_t);
-    
-    bool found = arena_find_block(
-        arena_start_addr,
-        (void*)((uintptr_t)arena_start_addr + arena_size),
-        real_size,
-        &start, &end);
-
-    if (!found)
-        return NULL;
-
-    
-    void* calculated_block_end = (void*)(start + real_size);
-    ptrdiff_t available = end - (uintptr_t)calculated_block_end;
-
-    if (available >= (int)(sizeof(uintptr_t) + sizeof(byte_t) +  sizeof(byte_t)))
-    {
-        *(uintptr_t*)calculated_block_end = end;
-        *(byte_t*)((uintptr_t)calculated_block_end + sizeof(uintptr_t)) = (byte_t)0;
-        *(uintptr_t*)(start) = (uintptr_t)calculated_block_end;
-    }
-    else
-    {
-        *(uintptr_t*)(start) = end;
-    }
-
-    *(byte_t*)((uintptr_t)start + sizeof(uintptr_t)) = (byte_t)1;
-
-    return (void*)((uintptr_t)start + sizeof(uintptr_t) + sizeof(byte_t));
-}
-
-void arena_free(void* addr)
-{
-    void* mem_start = find_mem_start(addr);
-    if (!block_in_use(mem_start))
-        return;
-
-    *(byte_t*)((uintptr_t)mem_start - sizeof(byte_t)) = 0;
-}
-
-bool block_in_use(void* addr)
-{
-    return *(((byte_t*)addr) - 1) == 1;
-}
-
-void* find_mem_start(void* addr)
+void* find_mem_start_(void* addr)
 {
     void* start = arena_start_addr;
     void* next = (void*)*(uintptr_t*)start;
@@ -225,17 +237,4 @@ void* find_mem_start(void* addr)
     return (void*)((uintptr_t)start + sizeof(uintptr_t) + sizeof(byte_t));
 }
 
-void* get_block_start(void* addr)
-{
-    return (void*) ((uintptr_t)addr - sizeof(byte_t) - sizeof(uintptr_t));
-}
-
-void* next_block_start(void* addr)
-{
-    return (void*) *(uintptr_t*)((uintptr_t)addr - sizeof(byte_t) - sizeof(uintptr_t));
-}
-
-ptrdiff_t get_block_size(void* addr)
-{
-    return (uintptr_t)next_block_start(addr) - (uintptr_t)addr;
-}
+// End local definitions

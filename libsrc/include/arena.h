@@ -1,20 +1,18 @@
 #ifndef ARENA_H__
 #define ARENA_H__
 
+#include <stdlib.h>
+#include <stdint.h>
+#include <stddef.h>
 #include <stdbool.h>
-
-typedef char byte_t;
-
-static void* arena_start_addr = NULL;
-static size_t arena_size = 0;
 
 int arena_prepare(int page_count);
 int arena_clean();
 
-
 void* arena_malloc(size_t size);
 void arena_free(void* addr);
 
-
+bool arena_block_in_use(void* addr);
+ptrdiff_t arena_get_block_size(void* addr);
 
 #endif // ARENA_H__
