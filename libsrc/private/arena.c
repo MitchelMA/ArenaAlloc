@@ -38,14 +38,13 @@ static void* next_block_start_(void* addr);
 
 // Non-static
 
-int arena_prepare(arena_instance_t* instance, int page_count)
+size_t arena_prepare(arena_instance_t* instance, size_t page_count)
 {
     if (instance->start_addr != NULL)
         return 0;
 
-    size_t byte_count = page_count * getpagesize();
-    instance->size = byte_count;
-    instance->start_addr = (byte_t*)mmap(NULL, byte_count, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    instance->size = page_count * getpagesize();
+    instance->start_addr = (byte_t*)mmap(NULL, instance->size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
 
     if (instance->start_addr == NULL || instance->start_addr == MAP_FAILED)
         return 0;
@@ -105,7 +104,7 @@ void arena_free(arena_instance_t* instance, void* addr)
 
 // Static
 
-int arena_static_prepare(int page_count)
+size_t arena_static_prepare(size_t page_count)
 {
     return arena_prepare(&static_arena, page_count);
 }
