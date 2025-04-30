@@ -7,9 +7,6 @@
 typedef char byte_t;
 static arena_instance_t static_arena;
 
-// static void* arena_start_addr = NULL;
-// static size_t arena_size = 0;
-
 // MACROS
 
 #define META_DATA_SIZE (sizeof(uintptr_t) + sizeof(byte_t))
