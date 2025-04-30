@@ -4,11 +4,11 @@
 #include <sys/mman.h>
 
 
-
 typedef char byte_t;
+static arena_instance_t static_arena;
 
-static void* arena_start_addr = NULL;
-static size_t arena_size = 0;
+// static void* arena_start_addr = NULL;
+// static size_t arena_size = 0;
 
 // MACROS
 
@@ -34,43 +34,45 @@ static size_t arena_size = 0;
 static bool find_consecutive_(const void* start_address, const void* end_address, uintptr_t* border);
 static bool find_block_(const void* start_address, const void* end_address, size_t min_size_request, uintptr_t* found_start, uintptr_t* found_end);
 
-static void* find_mem_start_(void* addr);
+static void* find_mem_start_(arena_instance_t* instance, void* addr);
 static void* next_block_start_(void* addr);
 
 // End local declerations
 
-int arena_prepare(int page_count)
+// Non-static
+
+int arena_prepare(arena_instance_t* instance, int page_count)
 {
-    if (arena_start_addr != NULL)
+    if (instance->start_addr != NULL)
         return 0;
 
     size_t byte_count = page_count * getpagesize();
-    arena_size = byte_count;
-    arena_start_addr = (byte_t*)mmap(NULL, byte_count, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    instance->size = byte_count;
+    instance->start_addr = (byte_t*)mmap(NULL, byte_count, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
 
-    if (arena_start_addr == NULL || arena_start_addr == MAP_FAILED)
+    if (instance->start_addr == NULL || instance->start_addr == MAP_FAILED)
         return 0;
 
     return page_count;
 }
 
-int arena_clean()
+int arena_clean(arena_instance_t* instance)
 {
-    if (arena_start_addr == NULL || arena_start_addr == MAP_FAILED)
+    if (instance->start_addr == NULL || instance->start_addr == MAP_FAILED)
         return -1;
 
-    return munmap((void*)arena_start_addr, arena_size);
+    return munmap((void*)instance->start_addr, instance->size);
 }
 
-void* arena_malloc(size_t size)
+void* arena_malloc(arena_instance_t* instance, size_t size)
 {
     uintptr_t start = 0;
     uintptr_t end   = 0;
     size_t real_size = size + META_DATA_SIZE;
     
     bool found = find_block_(
-        arena_start_addr,
-        (void*)((uintptr_t)arena_start_addr + arena_size),
+        instance->start_addr,
+        (void*)((uintptr_t)instance->start_addr + instance->size),
         real_size,
         &start, &end);
 
@@ -95,13 +97,42 @@ void* arena_malloc(size_t size)
     return GET_USER_PTR((void*)start);
 }
 
-void arena_free(void* addr)
+void arena_free(arena_instance_t* instance, void* addr)
 {
-    void* mem_start = find_mem_start_(addr);
+    void* mem_start = find_mem_start_(instance, addr);
     if (!arena_block_in_use(mem_start))
         return;
 
     SET_IN_USE(GET_ARENA_PTR(mem_start), 0);
+}
+
+// Static
+
+int arena_static_prepare(int page_count)
+{
+    return arena_prepare(&static_arena, page_count);
+}
+
+int arena_static_clean()
+{
+    return arena_clean(&static_arena);
+}
+
+void* arena_static_malloc(size_t size)
+{
+    return arena_malloc(&static_arena, size);
+}
+
+void arena_static_free(void* addr)
+{
+    arena_free(&static_arena, addr);
+}
+
+// Utility
+
+ptrdiff_t arena_get_block_size(void* addr)
+{
+    return (uintptr_t)next_block_start_(addr) - (uintptr_t)addr;
 }
 
 bool arena_block_in_use(void* addr)
@@ -109,15 +140,6 @@ bool arena_block_in_use(void* addr)
     return READ_IN_USE(GET_ARENA_PTR(addr)) == 1;
 }
 
-ptrdiff_t arena_get_block_size(void* addr)
-{
-    return (uintptr_t)next_block_start_(addr) - (uintptr_t)addr;
-}
-
-void* next_block_start_(void* addr)
-{
-    return (void*)GET_NEXT_BLOCK(GET_ARENA_PTR(addr));
-}
 
 // local definitions
 
@@ -234,14 +256,16 @@ find_block_(
     return false;
 }
 
-void* find_mem_start_(void* addr)
+void* find_mem_start_(arena_instance_t* instance, void* addr)
 {
-    void* start = arena_start_addr;
+    void* start = instance->start_addr;
+    void* end = (void*)((uintptr_t)instance->start_addr + instance->size);
     void* next = (void*)GET_NEXT_BLOCK(start);
 
     while(1)
     {
-        if (next == NULL)
+        if (next == NULL ||
+            (uintptr_t)next >= (uintptr_t)end)
             break;
 
         bool within_range = (uintptr_t)addr > (uintptr_t)start && (uintptr_t)addr < (uintptr_t)next;
@@ -253,6 +277,11 @@ void* find_mem_start_(void* addr)
     }
 
     return GET_USER_PTR(start);
+}
+
+void* next_block_start_(void* addr)
+{
+    return (void*)GET_NEXT_BLOCK(GET_ARENA_PTR(addr));
 }
 
 // End local definitions
