@@ -1,5 +1,6 @@
 #include <arena.h>
 
+#include <string.h>
 #include <unistd.h>
 #include <sys/mman.h>
 
@@ -78,11 +79,11 @@ void* arena_malloc(arena_instance_t* instance, size_t size)
     void* calculated_block_end = (void*)(start + real_size);
     ptrdiff_t available = end - (uintptr_t)calculated_block_end;
 
-    if (available >= (int)(META_DATA_SIZE + sizeof(byte_t)))
+    if (available >= (int64_t)(META_DATA_SIZE + sizeof(byte_t)))
     {
         SET_NEXT_BLOCK(calculated_block_end, (void*)end);
-        SET_IN_USE(calculated_block_end, 0);
         SET_NEXT_BLOCK((void*)start, calculated_block_end);
+        SET_IN_USE(calculated_block_end, 0);
     }
     else
     {
@@ -91,6 +92,110 @@ void* arena_malloc(arena_instance_t* instance, size_t size)
 
     SET_IN_USE((void*)start, 1);
     return GET_USER_PTR((void*)start);
+}
+
+void* arena_realloc(arena_instance_t* instance, void* addr, size_t size)
+{
+    size_t current_size = (size_t)arena_get_block_size(addr);
+    size_t real_request_size = size + META_DATA_SIZE;
+
+    // Do nothing when there's no change in size
+    if (size == current_size)
+        return addr;
+
+    // Shrink within the current block
+    if (size < current_size)
+    {
+        uint64_t diff = current_size - size;
+        // When the requested difference is smaller than the required size of meta-data + an extra byte,
+        // Nothing gets done
+        if (diff < META_DATA_SIZE + sizeof(byte_t))
+            return addr;
+
+        uintptr_t old_end = GET_NEXT_BLOCK(GET_ARENA_PTR(addr));
+        uintptr_t new_end = old_end - diff;
+        SET_NEXT_BLOCK((void*)new_end, (void*)old_end);
+        SET_NEXT_BLOCK(GET_ARENA_PTR(addr), (void*)new_end);
+        SET_IN_USE((void*)new_end, 0);
+        return addr;
+    }
+
+    uintptr_t start = (uintptr_t)GET_ARENA_PTR(addr);
+    uintptr_t end = GET_NEXT_BLOCK((void*)start);
+
+    // Try to first grow the block from it's current starting point
+    uintptr_t border = 0;
+    bool found = find_consecutive_(
+        (const void*)GET_NEXT_BLOCK((void*)start),
+        (const void*)((uintptr_t)instance->start_addr + instance->size),
+        &border
+    );
+
+    if (found)
+    {
+        // Test the size
+        size_t consecutive_size = border - start;
+        size_t corrected_size = consecutive_size - META_DATA_SIZE;
+        void* calculated_block_end = (void*)(start + real_request_size);
+        if (corrected_size >= size)
+        {
+            ptrdiff_t available = border - (uintptr_t)calculated_block_end;
+
+            if (available >= (int64_t)(META_DATA_SIZE + sizeof(byte_t)))
+            {
+                SET_NEXT_BLOCK((void*)start, calculated_block_end);
+                SET_NEXT_BLOCK(calculated_block_end, (void*)border);
+                SET_IN_USE(calculated_block_end, 0);
+            }
+            else
+            {
+                SET_NEXT_BLOCK((void*)start, (void*)border);
+            }
+
+            return addr;
+        }
+    }
+
+    // When growing from the current address failed
+    SET_IN_USE((void*)start, 0);
+
+    uintptr_t new_start = 0;
+    uintptr_t new_end = 0;
+    found = find_block_(
+        instance->start_addr,
+        (const void*)((uintptr_t)instance->start_addr + instance->size),
+        real_request_size,
+        &new_start,
+        &new_end
+    );
+
+    // Couldn't find a block of the requested size
+    if (!found)
+    {
+        SET_IN_USE((void*)start, 1);
+        return NULL;
+    }
+
+    // Move the old memory data to the new block
+    memmove(GET_USER_PTR((void*)new_start), addr, current_size);
+
+    void* calculated_block_end = (void*)(new_start + real_request_size);
+    ptrdiff_t available = new_end - (uintptr_t)calculated_block_end;
+
+    if (available >= (int64_t)(META_DATA_SIZE + sizeof(byte_t)))
+    {
+        SET_NEXT_BLOCK((void*)new_start, calculated_block_end);
+        SET_NEXT_BLOCK(calculated_block_end, (void*)new_end);
+        SET_IN_USE(calculated_block_end, 0);
+    }
+    else
+    {
+        SET_NEXT_BLOCK((void*)new_start, (void*)new_end);
+    }
+
+    SET_IN_USE((void*)new_start, 1);
+
+    return GET_USER_PTR((void*)new_start);
 }
 
 void arena_free(arena_instance_t* instance, void* addr)
@@ -117,6 +222,11 @@ int arena_static_clean()
 void* arena_static_malloc(size_t size)
 {
     return arena_malloc(&static_arena, size);
+}
+
+void* arena_static_realloc(void* addr, size_t size)
+{
+    return arena_realloc(&static_arena, addr, size);
 }
 
 void arena_static_free(void* addr)

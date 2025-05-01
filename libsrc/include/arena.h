@@ -18,6 +18,7 @@ size_t arena_prepare(arena_instance_t* instance, size_t page_count);
 int arena_clean(arena_instance_t* instance);
 
 void* arena_malloc(arena_instance_t* instance, size_t size);
+void* arena_realloc(arena_instance_t* instance, void* addr, size_t size);
 void arena_free(arena_instance_t* instance, void* addr);
 
 // Static
@@ -26,6 +27,7 @@ size_t arena_static_prepare(size_t page_count);
 int arena_static_clean();
 
 void* arena_static_malloc(size_t size);
+void* arena_static_realloc(void* addr, size_t size);
 void  arena_static_free(void* addr);
 
 // Utility
