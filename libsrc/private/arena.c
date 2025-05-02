@@ -121,7 +121,6 @@ void* arena_realloc(arena_instance_t* instance, void* addr, size_t size)
     }
 
     uintptr_t start = (uintptr_t)GET_ARENA_PTR(addr);
-    uintptr_t end = GET_NEXT_BLOCK((void*)start);
 
     // Try to first grow the block from it's current starting point
     uintptr_t border = 0;
