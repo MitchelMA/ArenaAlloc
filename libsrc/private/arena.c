@@ -61,6 +61,28 @@ int arena_clean(arena_instance_t* instance)
     return munmap((void*)instance->start_addr, instance->size);
 }
 
+void arena_reset(arena_instance_t* instance)
+{
+    if (instance == NULL || instance->start_addr == NULL)
+        return;
+
+    uintptr_t arena_end = (uintptr_t)instance->start_addr + instance->size;
+    uintptr_t current_addr = (uintptr_t)instance->start_addr;
+    while (current_addr != (uintptr_t)NULL && current_addr < arena_end)
+    {
+        SET_IN_USE((void*)current_addr, 0);
+        current_addr = GET_NEXT_BLOCK(current_addr);
+    }
+}
+
+void arena_hard_reset(arena_instance_t* instance)
+{
+    if (instance == NULL || instance->start_addr == NULL)
+        return;
+
+    memset(instance->start_addr, 0, instance->size);
+}
+
 void* arena_malloc(arena_instance_t* instance, size_t size)
 {
     uintptr_t start = 0;
@@ -216,6 +238,16 @@ size_t arena_static_prepare(size_t page_count)
 int arena_static_clean()
 {
     return arena_clean(&static_arena);
+}
+
+void arena_static_reset()
+{
+    arena_reset(&static_arena);
+}
+
+void arena_static_hard_reset()
+{
+    arena_hard_reset(&static_arena);
 }
 
 void* arena_static_malloc(size_t size)
