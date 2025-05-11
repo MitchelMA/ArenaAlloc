@@ -3,16 +3,12 @@ project(ArenaAllocator
     VERSION 0.8.1
     LANGUAGES C)
 
-set(CMAKE_C_STANDARD 23)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wpedantic -pedantic")
-set(CMAKE_C_FLAGS_DEBUG "-g -ggdb")
-set(CMAKE_C_FLAGS_RELEASE "-Werror -Ofast")
-
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY
-  ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY
-  ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY
-  ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
-
 add_subdirectory(./libsrc)
+
+target_compile_options(ArenaAllocator
+    PRIVATE
+    -std=gnu23
+    -Wall -Wextra -Wpedantic -pedantic
+    $<$<STREQUAL:$<UPPER_CASE:${CMAKE_BUILD_TYPE}>,DEBUG>:-g -ggdb>
+    $<$<STREQUAL:$<UPPER_CASE:${CMAKE_BUILD_TYPE}>,RELEASE>:-Werror -Ofast>
+)
