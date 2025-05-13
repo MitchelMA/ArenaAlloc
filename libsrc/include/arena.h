@@ -15,6 +15,7 @@ typedef struct arena_instance
 // Non-static
 
 size_t arena_prepare(arena_instance_t* instance, size_t page_count);
+size_t arena_prepare_file(arena_instance_t* instance, size_t page_count, const char* file_name);
 int arena_clean(arena_instance_t* instance);
 
 void arena_reset(arena_instance_t* instance);
@@ -27,6 +28,7 @@ void arena_free(arena_instance_t* instance, void* addr);
 // Static
 
 size_t arena_static_prepare(size_t page_count);
+size_t arena_static_prepare_file(size_t page_count, const char* file_name);
 int arena_static_clean();
 
 void arena_static_reset();

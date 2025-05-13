@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <fcntl.h>
 
 
 typedef char byte_t;
@@ -35,6 +36,8 @@ static bool find_block_(const void* start_address, const void* end_address, size
 static void* find_mem_start_(arena_instance_t* instance, void* addr);
 static void* next_block_start_(void* addr);
 
+static int create_open_fd_(const char* file_name, size_t request_size);
+
 // End local declerations
 
 // Non-static
@@ -53,12 +56,46 @@ size_t arena_prepare(arena_instance_t* instance, size_t page_count)
     return page_count;
 }
 
+size_t arena_prepare_file(arena_instance_t* instance, size_t page_count, const char* file_name)
+{
+    if (instance-> start_addr != NULL)
+        return 0;
+
+    instance->size = page_count* getpagesize();
+
+    int fd = create_open_fd_(file_name, instance->size);
+    if (fd == -1)
+        return 0;
+
+    instance->start_addr = (byte_t*)mmap(
+        NULL, // Address hint
+        instance->size, // Request size
+        PROT_READ | PROT_WRITE, // Protection
+        MAP_SHARED | MAP_FILE, // Flags
+        fd, // File descriptor
+        0 // Offset
+    );
+
+    close(fd);
+
+    if (instance->start_addr == NULL || instance->start_addr == MAP_FAILED)
+        return 0;
+
+    return page_count;
+}
+
 int arena_clean(arena_instance_t* instance)
 {
     if (instance->start_addr == NULL || instance->start_addr == MAP_FAILED)
         return -1;
 
-    return munmap((void*)instance->start_addr, instance->size);
+    int ret = munmap((void*)instance->start_addr, instance->size);
+    if (ret == -1)
+        return -1;
+
+    instance->start_addr = NULL;
+    instance->size = 0;
+    return ret;
 }
 
 void arena_reset(arena_instance_t* instance)
@@ -233,6 +270,11 @@ void arena_free(arena_instance_t* instance, void* addr)
 size_t arena_static_prepare(size_t page_count)
 {
     return arena_prepare(&static_arena, page_count);
+}
+
+size_t arena_static_prepare_file(size_t page_count, const char* file_name)
+{
+    return arena_prepare_file(&static_arena, page_count, file_name);
 }
 
 int arena_static_clean()
@@ -419,6 +461,37 @@ void* find_mem_start_(arena_instance_t* instance, void* addr)
 void* next_block_start_(void* addr)
 {
     return (void*)GET_NEXT_BLOCK(GET_ARENA_PTR(addr));
+}
+
+int create_open_fd_(const char* file_name, size_t request_size)
+{
+    if (file_name == NULL)
+        return -1;
+
+    int fd = open(
+        file_name,
+        O_RDWR | O_TRUNC | O_CREAT,
+        S_IRUSR | S_IWUSR | // User permisions
+        S_IRGRP | S_IWGRP | // Group permissions
+        S_IROTH | S_IWOTH   // Other permissions
+    );
+
+    if (fd == -1)
+        return -1;
+
+    if (lseek(fd, (off_t)request_size, SEEK_SET) == (off_t)(-1))
+    {
+        close(fd);
+        return -1;
+    }
+
+    if (write(fd, "\0", 1) == -1)
+    {
+        close(fd);
+        return -1;
+    }
+
+    return fd;
 }
 
 // End local definitions
