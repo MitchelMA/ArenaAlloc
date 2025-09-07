@@ -287,7 +287,7 @@ void* arena_at_index(arena_instance_t* instance, int64_t idx)
 
     for (int64_t i = 0; i < idx; ++i)
     {
-        if (idx_addr == (uintptr_t)NULL || (idx_addr + META_DATA_SIZE) >= instance->size || !READ_IN_USE(idx_addr))
+        if (idx_addr == (uintptr_t)NULL || (idx_addr + META_DATA_SIZE) >= (instance->size + (uintptr_t)instance->start_addr) || !READ_IN_USE(idx_addr))
             return NULL;
 
         idx_addr = GET_NEXT_BLOCK(idx_addr);
