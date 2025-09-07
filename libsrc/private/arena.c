@@ -293,7 +293,7 @@ void* arena_at_index(arena_instance_t* instance, int64_t idx)
         idx_addr = GET_NEXT_BLOCK(idx_addr);
     }
 
-    return (void*)GET_USER_PTR(idx_addr);
+    return READ_IN_USE(idx_addr) > 0 ? (void*)GET_USER_PTR(idx_addr) : NULL;
 }
 
 // Static
