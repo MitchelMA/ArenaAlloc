@@ -84,6 +84,20 @@ size_t arena_prepare_file(arena_instance_t* instance, size_t page_count, const c
     return page_count;
 }
 
+size_t arena_prepare_shared(arena_instance_t* instance, size_t page_count)
+{
+    if (instance->start_addr != NULL)
+        return 0;
+
+    instance->size = page_count * getpagesize();
+    instance->start_addr = (byte_t*)mmap(NULL, instance->size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+
+    if (instance->start_addr == NULL || instance->start_addr == MAP_FAILED)
+        return 0;
+
+    return page_count;
+}
+
 int arena_clean(arena_instance_t* instance)
 {
     if (instance->start_addr == NULL || instance->start_addr == MAP_FAILED)
@@ -292,6 +306,11 @@ size_t arena_static_prepare(size_t page_count)
 size_t arena_static_prepare_file(size_t page_count, const char* file_name)
 {
     return arena_prepare_file(&static_arena, page_count, file_name);
+}
+
+size_t arena_static_prepare_shared(size_t page_count)
+{
+    return arena_prepare_shared(&static_arena, page_count);
 }
 
 int arena_static_clean()

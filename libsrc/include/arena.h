@@ -16,6 +16,7 @@ typedef struct arena_instance
 
 size_t arena_prepare(arena_instance_t* instance, size_t page_count);
 size_t arena_prepare_file(arena_instance_t* instance, size_t page_count, const char* file_name);
+size_t arena_prepare_shared(arena_instance_t* instance, size_t page_count);
 int arena_clean(arena_instance_t* instance);
 
 void arena_reset(arena_instance_t* instance);
@@ -31,6 +32,7 @@ void* arena_at_index(arena_instance_t* instance, int64_t idx);
 
 size_t arena_static_prepare(size_t page_count);
 size_t arena_static_prepare_file(size_t page_count, const char* file_name);
+size_t arena_static_prepare_shared(size_t page_count);
 int arena_static_clean();
 
 void arena_static_reset();
