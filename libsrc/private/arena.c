@@ -265,6 +265,23 @@ void arena_free(arena_instance_t* instance, void* addr)
     SET_IN_USE(GET_ARENA_PTR(mem_start), 0);
 }
 
+void* arena_at_index(arena_instance_t* instance, int64_t idx)
+{
+    uintptr_t idx_addr = (uintptr_t)instance->start_addr + META_DATA_SIZE;
+    if (!READ_IN_USE(idx_addr))
+        return NULL;
+
+    for (int64_t i = 0; i < idx; ++i)
+    {
+        if (idx_addr == (uintptr_t)NULL || (uintptr_t)idx_addr >= instance->size || !READ_IN_USE(idx_addr))
+            return NULL;
+
+        idx_addr = GET_NEXT_BLOCK(idx_addr);
+    }
+
+    return (void*)GET_USER_PTR(idx_addr);
+}
+
 // Static
 
 size_t arena_static_prepare(size_t page_count)
@@ -305,6 +322,11 @@ void* arena_static_realloc(void* addr, size_t size)
 void arena_static_free(void* addr)
 {
     arena_free(&static_arena, addr);
+}
+
+void* arena_static_at_index(int64_t idx)
+{
+    return arena_at_index(&static_arena, idx);
 }
 
 // Utility

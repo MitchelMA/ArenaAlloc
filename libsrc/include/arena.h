@@ -25,6 +25,8 @@ void* arena_malloc(arena_instance_t* instance, size_t size);
 void* arena_realloc(arena_instance_t* instance, void* addr, size_t size);
 void arena_free(arena_instance_t* instance, void* addr);
 
+void* arena_at_index(arena_instance_t* instance, int64_t idx);
+
 // Static
 
 size_t arena_static_prepare(size_t page_count);
@@ -37,6 +39,8 @@ void arena_static_hard_reset();
 void* arena_static_malloc(size_t size);
 void* arena_static_realloc(void* addr, size_t size);
 void  arena_static_free(void* addr);
+
+void* arena_static_at_index(int64_t idx);
 
 // Utility
 
