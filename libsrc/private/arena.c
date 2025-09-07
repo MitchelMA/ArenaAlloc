@@ -281,13 +281,13 @@ void arena_free(arena_instance_t* instance, void* addr)
 
 void* arena_at_index(arena_instance_t* instance, int64_t idx)
 {
-    uintptr_t idx_addr = (uintptr_t)instance->start_addr + META_DATA_SIZE;
+    uintptr_t idx_addr = (uintptr_t)instance->start_addr;
     if (!READ_IN_USE(idx_addr))
         return NULL;
 
     for (int64_t i = 0; i < idx; ++i)
     {
-        if (idx_addr == (uintptr_t)NULL || (uintptr_t)idx_addr >= instance->size || !READ_IN_USE(idx_addr))
+        if (idx_addr == (uintptr_t)NULL || (idx_addr + META_DATA_SIZE) >= instance->size || !READ_IN_USE(idx_addr))
             return NULL;
 
         idx_addr = GET_NEXT_BLOCK(idx_addr);
